@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+	xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+		http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+
+	<munit:config name="payment-api-test.xml" />
+
+	<!-- TEST 1: HIGH (score 82, 4 ruleHits, VM publish called once) -->
+	<munit:test name="fraud-scoring-high-risk-test" description="HIGH risk: score 82">
+		<munit:behavior>
+			<munit-tools:mock-when processor="vm:publish">
+				<munit-tools:then-return />
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload mediaType="application/json" value="#[output application/json --- {
+					eventId: 'PAY-EVT-2026-884512',
+					eventTimestamp: '2026-09-11T14:22:07+05:30',
+					transaction: { transactionId: 'TXN-99120455', amount: 248500.00, currency: 'INR', channel: 'ONLINE', entryMode: 'CARD_NOT_PRESENT' },
+					card: { cardToken: 'TKN-4d9a77e1c0', maskedCardNumber: 'XXXXXXXXXXXX4417', cardType: 'CREDIT', issuingCountry: 'IN' },
+					customer: { customerId: 'CUST-77219', name: 'Meena Raghavan', email: 'meena.raghavan@example.com', riskProfile: 'STANDARD' },
+					merchant: { merchantId: 'MER-5581', merchantName: 'Global Gadgets Online', merchantCategory: 'ELECTRONICS', merchantCountry: 'SG' },
+					device: { ipAddress: '203.0.113.77', deviceId: 'DEV-ax91kk', geoCountry: 'SG' },
+					velocity: { transactionCount: 4, windowMinutes: 5 },
+					correlationId: 'CORR-001'
+				}]" />
+			</munit:set-event>
+			<flow-ref name="post:\payments\events:application\json:fintechpaymentfrauddetection-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-that expression="#[payload.riskScore]" is="#[MunitTools::equalTo(82)]" />
+			<munit-tools:assert-that expression="#[payload.riskBand]" is="#[MunitTools::equalTo('HIGH')]" />
+			<munit-tools:assert-that expression="#[sizeOf(payload.ruleHits)]" is="#[MunitTools::equalTo(4)]" />
+			<munit-tools:assert-that expression="#[(payload pluck ($$ as String))[-1]]" is="#[MunitTools::equalTo('correlationId')]" />
+			<munit-tools:verify-call processor="vm:publish" times="1" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- TEST 2: MEDIUM (score 50, 2 ruleHits) -->
+	<munit:test name="fraud-scoring-medium-risk-test" description="MEDIUM risk: score 50">
+		<munit:behavior>
+			<munit-tools:mock-when processor="vm:publish">
+				<munit-tools:then-return />
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload mediaType="application/json" value="#[output application/json --- {
+					eventId: 'PAY-EVT-2026-884513',
+					eventTimestamp: '2026-09-11T14:22:07+05:30',
+					transaction: { transactionId: 'TXN-99120456', amount: 60000.00, currency: 'INR', channel: 'ONLINE', entryMode: 'CARD_NOT_PRESENT' },
+					card: { cardToken: 'TKN-4d9a77e1c0', maskedCardNumber: 'XXXXXXXXXXXX4417', cardType: 'CREDIT', issuingCountry: 'IN' },
+					customer: { customerId: 'CUST-77219', name: 'Meena Raghavan', email: 'meena.raghavan@example.com', riskProfile: 'STANDARD' },
+					merchant: { merchantId: 'MER-5582', merchantName: 'Local Store', merchantCategory: 'GROCERY', merchantCountry: 'US' },
+					device: { ipAddress: '203.0.113.77', deviceId: 'DEV-ax91kk', geoCountry: 'US' },
+					velocity: { transactionCount: 2, windowMinutes: 5 },
+					correlationId: 'CORR-002'
+				}]" />
+			</munit:set-event>
+			<flow-ref name="post:\payments\events:application\json:fintechpaymentfrauddetection-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-that expression="#[payload.riskScore]" is="#[MunitTools::equalTo(50)]" />
+			<munit-tools:assert-that expression="#[payload.riskBand]" is="#[MunitTools::equalTo('MEDIUM')]" />
+			<munit-tools:assert-that expression="#[sizeOf(payload.ruleHits)]" is="#[MunitTools::equalTo(2)]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- TEST 3: LOW (score 0, empty ruleHits) -->
+	<munit:test name="fraud-scoring-low-risk-test" description="LOW risk: score 0">
+		<munit:behavior>
+			<munit-tools:mock-when processor="vm:publish">
+				<munit-tools:then-return />
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload mediaType="application/json" value="#[output application/json --- {
+					eventId: 'PAY-EVT-2026-884514',
+					eventTimestamp: '2026-09-11T14:22:07+05:30',
+					transaction: { transactionId: 'TXN-99120457', amount: 1500.00, currency: 'INR', channel: 'ONLINE', entryMode: 'CARD_NOT_PRESENT' },
+					card: { cardToken: 'TKN-4d9a77e1c0', maskedCardNumber: 'XXXXXXXXXXXX4417', cardType: 'CREDIT', issuingCountry: 'IN' },
+					customer: { customerId: 'CUST-77219', name: 'Meena Raghavan', email: 'meena.raghavan@example.com', riskProfile: 'STANDARD' },
+					merchant: { merchantId: 'MER-5583', merchantName: 'Local Grocer', merchantCategory: 'GROCERY', merchantCountry: 'IN' },
+					device: { ipAddress: '203.0.113.77', deviceId: 'DEV-ax91kk', geoCountry: 'IN' },
+					velocity: { transactionCount: 1, windowMinutes: 5 },
+					correlationId: 'CORR-003'
+				}]" />
+			</munit:set-event>
+			<flow-ref name="post:\payments\events:application\json:fintechpaymentfrauddetection-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-that expression="#[payload.riskScore]" is="#[MunitTools::equalTo(0)]" />
+			<munit-tools:assert-that expression="#[payload.riskBand]" is="#[MunitTools::equalTo('LOW')]" />
+			<munit-tools:assert-that expression="#[sizeOf(payload.ruleHits)]" is="#[MunitTools::equalTo(0)]" />
+		</munit:validation>
+	</munit:test>
+
+	<!-- TEST 4: UNUSUAL_HOUR (score 10) -->
+	<munit:test name="fraud-scoring-unusual-hour-test" description="UNUSUAL_HOUR: score 10">
+		<munit:behavior>
+			<munit-tools:mock-when processor="vm:publish">
+				<munit-tools:then-return />
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution>
+			<munit:set-event>
+				<munit:payload mediaType="application/json" value="#[output application/json --- {
+					eventId: 'PAY-EVT-2026-884515',
+					eventTimestamp: '2026-09-11T02:15:00+05:30',
+					transaction: { transactionId: 'TXN-99120458', amount: 1500.00, currency: 'INR', channel: 'ONLINE', entryMode: 'CARD_NOT_PRESENT' },
+					card: { cardToken: 'TKN-4d9a77e1c0', maskedCardNumber: 'XXXXXXXXXXXX4417', cardType: 'CREDIT', issuingCountry: 'IN' },
+					customer: { customerId: 'CUST-77219', name: 'Meena Raghavan', email: 'meena.raghavan@example.com', riskProfile: 'STANDARD' },
+					merchant: { merchantId: 'MER-5583', merchantName: 'Local Grocer', merchantCategory: 'GROCERY', merchantCountry: 'IN' },
+					device: { ipAddress: '203.0.113.77', deviceId: 'DEV-ax91kk', geoCountry: 'IN' },
+					velocity: { transactionCount: 1, windowMinutes: 5 },
+					correlationId: 'CORR-004'
+				}]" />
+			</munit:set-event>
+			<flow-ref name="post:\payments\events:application\json:fintechpaymentfrauddetection-config" />
+		</munit:execution>
+		<munit:validation>
+			<munit-tools:assert-that expression="#[payload.riskScore]" is="#[MunitTools::equalTo(10)]" />
+			<munit-tools:assert-that expression="#[payload.riskBand]" is="#[MunitTools::equalTo('LOW')]" />
+			<munit-tools:assert-that expression="#[payload.ruleHits[0].ruleCode]" is="#[MunitTools::equalTo('UNUSUAL_HOUR')]" />
+		</munit:validation>
+	</munit:test>
+
+</mule>

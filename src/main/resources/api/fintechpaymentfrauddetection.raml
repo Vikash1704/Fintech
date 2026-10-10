@@ -1,0 +1,358 @@
+#%RAML 1.0
+title: FintechPaymentFraudDetection
+description: API for receiving payment events and returning fraud analysis
+version: v1
+baseUri: http://localhost:8081/api
+mediaType:
+  - application/json
+
+types:
+  Transaction:
+    type: object
+    additionalProperties: false
+    properties:
+      transactionId:
+        type: string
+        required: true
+        example: TXN-99120455
+      amount:
+        type: number
+        required: true
+        minimum: 0.01
+        example: 248500.00
+      currency:
+        type: string
+        required: true
+        minLength: 3
+        maxLength: 3
+        example: INR
+      channel:
+        type: string
+        required: true
+        example: ONLINE
+      entryMode:
+        type: string
+        required: true
+        example: CARD_NOT_PRESENT
+
+  Card:
+    type: object
+    additionalProperties: false
+    properties:
+      cardToken:
+        type: string
+        required: true
+        example: TKN-4d9a77e1c0
+      maskedCardNumber:
+        type: string
+        required: true
+        example: XXXXXXXXXXXX4417
+      cardType:
+        type: string
+        required: true
+        example: CREDIT
+      issuingCountry:
+        type: string
+        required: true
+        example: IN
+
+  Customer:
+    type: object
+    additionalProperties: false
+    properties:
+      customerId:
+        type: string
+        required: true
+        example: CUST-77219
+      name:
+        type: string
+        required: true
+        example: Meena Raghavan
+      email:
+        type: string
+        required: true
+        example: meena.raghavan@example.com
+      riskProfile:
+        type: string
+        required: true
+        example: STANDARD
+
+  Merchant:
+    type: object
+    additionalProperties: false
+    properties:
+      merchantId:
+        type: string
+        required: true
+        example: MER-5581
+      merchantName:
+        type: string
+        required: true
+        example: Global Gadgets Online
+      merchantCategory:
+        type: string
+        required: true
+        example: ELECTRONICS
+      merchantCountry:
+        type: string
+        required: true
+        example: SG
+
+  Device:
+    type: object
+    additionalProperties: false
+    properties:
+      ipAddress:
+        type: string
+        required: true
+        example: 203.0.113.77
+      deviceId:
+        type: string
+        required: true
+        example: DEV-ax91kk
+      geoCountry:
+        type: string
+        required: true
+        example: SG
+
+  Velocity:
+    type: object
+    additionalProperties: false
+    properties:
+      transactionCount:
+        type: integer
+        required: true
+        minimum: 0
+        example: 4
+      windowMinutes:
+        type: integer
+        required: true
+        minimum: 1
+        example: 5
+
+  PaymentEvent:
+    type: object
+    additionalProperties: false
+    properties:
+      eventId:
+        type: string
+        required: true
+        example: PAY-EVT-2026-884512
+      eventTimestamp:
+        type: datetime
+        required: true
+        example: 2026-09-11T14:22:07+05:30
+      transaction:
+        type: Transaction
+        required: true
+      card:
+        type: Card
+        required: true
+      customer:
+        type: Customer
+        required: true
+      merchant:
+        type: Merchant
+        required: true
+      device:
+        type: Device
+        required: true
+      velocity:
+        type: Velocity
+        required: true
+      correlationId:
+        type: string
+        required: true
+        example: CORR-001
+
+  RuleHit:
+    type: object
+    additionalProperties: false
+    properties:
+      ruleCode:
+        type: string
+        required: true
+      ruleName:
+        type: string
+        required: true
+      ruleWeight:
+        type: number
+        required: true
+
+  FraudAnalysisResponse:
+    type: object
+    additionalProperties: false
+    properties:
+      eventId:
+        type: string
+        required: true
+      eventTimestamp:
+        type: datetime
+        required: true
+      transaction:
+        type: Transaction
+        required: true
+      card:
+        type: Card
+        required: true
+      customer:
+        type: Customer
+        required: true
+      merchant:
+        type: Merchant
+        required: true
+      device:
+        type: Device
+        required: true
+      velocity:
+        type: Velocity
+        required: true
+      riskScore:
+        type: number
+        required: true
+        example: 82
+      riskBand:
+        type: string
+        required: true
+        enum: [LOW, MEDIUM, HIGH]
+        example: HIGH
+      ruleHits:
+        type: RuleHit[]
+        required: true
+      correlationId:
+        type: string
+        required: true
+
+  ErrorResponse:
+    type: object
+    additionalProperties: false
+    properties:
+      status:
+        type: string
+        required: true
+        example: ERROR
+      message:
+        type: string
+        required: true
+        example: Invalid payment event
+      correlationId:
+        type: string
+        required: false
+        example: CORR-001
+
+/payments/events:
+  post:
+    description: Receives a payment event and returns its fraud analysis.
+    body:
+      application/json:
+        type: PaymentEvent
+        example:
+          eventId: PAY-EVT-2026-884512
+          eventTimestamp: 2026-09-11T14:22:07+05:30
+          transaction:
+            transactionId: TXN-99120455
+            amount: 248500.00
+            currency: INR
+            channel: ONLINE
+            entryMode: CARD_NOT_PRESENT
+          card:
+            cardToken: TKN-4d9a77e1c0
+            maskedCardNumber: XXXXXXXXXXXX4417
+            cardType: CREDIT
+            issuingCountry: IN
+          customer:
+            customerId: CUST-77219
+            name: Meena Raghavan
+            email: meena.raghavan@example.com
+            riskProfile: STANDARD
+          merchant:
+            merchantId: MER-5581
+            merchantName: Global Gadgets Online
+            merchantCategory: ELECTRONICS
+            merchantCountry: SG
+          device:
+            ipAddress: 203.0.113.77
+            deviceId: DEV-ax91kk
+            geoCountry: SG
+          velocity:
+            transactionCount: 4
+            windowMinutes: 5
+          correlationId: CORR-001
+
+    responses:
+      200:
+        description: Payment event analyzed successfully.
+        body:
+          application/json:
+            type: FraudAnalysisResponse
+            example:
+              eventId: PAY-EVT-2026-884512
+              eventTimestamp: 2026-09-11T14:22:07+05:30
+              transaction:
+                transactionId: TXN-99120455
+                amount: 248500.00
+                currency: INR
+                channel: ONLINE
+                entryMode: CARD_NOT_PRESENT
+              card:
+                cardToken: TKN-4d9a77e1c0
+                maskedCardNumber: XXXXXXXXXXXX4417
+                cardType: CREDIT
+                issuingCountry: IN
+              customer:
+                customerId: CUST-77219
+                name: Meena Raghavan
+                email: meena.raghavan@example.com
+                riskProfile: STANDARD
+              merchant:
+                merchantId: MER-5581
+                merchantName: Global Gadgets Online
+                merchantCategory: ELECTRONICS
+                merchantCountry: SG
+              device:
+                ipAddress: 203.0.113.77
+                deviceId: DEV-ax91kk
+                geoCountry: SG
+              velocity:
+                transactionCount: 4
+                windowMinutes: 5
+              riskScore: 82
+              riskBand: HIGH
+              ruleHits:
+                - ruleCode: AMOUNT_HIGH
+                  ruleName: Transaction amount above configured limit
+                  ruleWeight: 30
+                - ruleCode: COUNTRY_MISMATCH
+                  ruleName: Transaction country differs from issuing country
+                  ruleWeight: 20
+                - ruleCode: VELOCITY_HIGH
+                  ruleName: Too many transactions from same card in configured window
+                  ruleWeight: 25
+                - ruleCode: MERCHANT_HIGH_RISK
+                  ruleName: High risk merchant category
+                  ruleWeight: 7
+              correlationId: CORR-001
+
+      400:
+        description: Invalid payment event.
+        body:
+          application/json:
+            type: ErrorResponse
+
+      404:
+        description: Resource not found.
+        body:
+          application/json:
+            type: ErrorResponse
+
+      405:
+        description: HTTP method not allowed.
+        body:
+          application/json:
+            type: ErrorResponse
+
+      500:
+        description: Internal server error.
+        body:
+          application/json:
+            type: ErrorResponse

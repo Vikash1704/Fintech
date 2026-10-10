@@ -1,0 +1,13 @@
+fraud:
+  amountThreshold: "50000"
+  velocityLimit: "3"
+  usualHours:
+    start: "6"
+    end: "22"
+  highRiskMerchantCategories: "GAMBLING,CRYPTO,ELECTRONICS"
+  weights:
+    AMOUNT_HIGH: "30"
+    COUNTRY_MISMATCH: "20"
+    VELOCITY_HIGH: "25"
+    MERCHANT_HIGH_RISK: "7"
+    UNUSUAL_HOUR: "10"
