@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="payment-api-test.xml"/>
+
+    <munit:test name="payment-api-valid-event-test"
+                description="Valid payment event returns an acknowledgment">
+
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload value='#[{
+                    eventId: "EVT-1001",
+                    correlationId: "CORR-001",
+                    eventTimestamp: "2026-10-12T15:00:00Z",
+                    customer: {
+                        customerId: "CUST-101",
+                        name: "Test Customer",
+                        email: "customer@example.com",
+                        riskProfile: "MEDIUM"
+                    },
+                    card: {
+                        cardToken: "TOKEN-1001",
+                        maskedCardNumber: "XXXXXXXXXXXX4417",
+                        cardType: "CREDIT",
+                        issuingCountry: "IN"
+                    },
+                    transaction: {
+                        transactionId: "TXN-5001",
+                        amount: 15000,
+                        currency: "INR",
+                        channel: "ONLINE",
+                        entryMode: "ECOMMERCE"
+                    },
+                    device: {
+                        deviceId: "DEV-1001",
+                        ipAddress: "192.168.1.10",
+                        geoCountry: "IN"
+                    },
+                    merchant: {
+                        merchantId: "MER-101",
+                        merchantName: "Test Store",
+                        merchantCategory: "RETAIL",
+                        merchantCountry: "IN"
+                    }
+                }]'/>
+            </munit:set-event>
+
+            <flow-ref name="post:\payments\events:application\json:fintechpaymentfrauddetection-config"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[payload.eventId]"
+                is="#[MunitTools::equalTo('EVT-1001')]"
+                message="Response should contain the event ID"/>
+
+            <munit-tools:assert-that
+                expression="#[payload.transactionId]"
+                is="#[MunitTools::equalTo('TXN-5001')]"
+                message="Response should contain the transaction ID"/>
+
+            <munit-tools:assert-that
+                expression="#[payload.status]"
+                is="#[MunitTools::equalTo('QUEUED_FOR_REVIEW')]"
+                message="Response should acknowledge the payment event"/>
+
+            <munit-tools:assert-that
+                expression="#[payload.correlationId]"
+                is="#[MunitTools::equalTo('CORR-001')]"
+                message="Response should preserve the correlation ID"/>
+        </munit:validation>
+
+    </munit:test>
+
+</mule>

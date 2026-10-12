@@ -1,0 +1,43 @@
+%dw 2.0
+
+type auto_254663b0_0bb4_43c0_be67_6e35ba32a565_Input_Payload = {|
+  eventId: String, 
+  merchant: {
+    merchantId: String, 
+    merchantCategory: String, 
+    merchantCountry: String, 
+    merchantName: String, 
+    _?: Any
+  }, 
+  correlationId: String, 
+  device: {
+    ipAddress: String, 
+    geoCountry: String, 
+    deviceId: String, 
+    _?: Any
+  }, 
+  transaction: {
+    amount: Number, 
+    channel: String, 
+    currency: String, 
+    transactionId: String, 
+    entryMode: String, 
+    _?: Any
+  }, 
+  card: {
+    issuingCountry: String, 
+    cardType: String, 
+    maskedCardNumber: String, 
+    cardToken: String, 
+    _?: Any
+  }, 
+  eventTimestamp: String, 
+  customer: {
+    riskProfile: String, 
+    customerId: String, 
+    name: String, 
+    email: String, 
+    _?: Any
+  }
+|}
+
