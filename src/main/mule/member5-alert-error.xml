@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:email="http://www.mulesoft.org/schema/mule/email"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="f1442e52-725f-4f9a-9108-da5efcb01fc9" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<email:smtp-config name="Email_SMTP" doc:name="Email SMTP" doc:id="d17805a2-af7a-4293-b8f2-794acd16e99f" >
+		<email:smtps-connection host="smtp.gmail.com" user="inapanuribanny@gmail.com" password="qwqi oqjg exqs mqux" >
+			<tls:context >
+				<tls:trust-store insecure="true" />
+			</tls:context>
+		</email:smtps-connection>
+	</email:smtp-config>
+	<os:object-store name="Alert_Throttle_Store" doc:name="Object store" doc:id="be6d4738-d6ae-45b4-8a2a-cc2018ece139" entryTtl="3600" />
+	<os:object-store name="DLQ_Store" doc:name="Object store" doc:id="13c8803b-f2c9-40ee-a9ab-d3a930ab460e" entryTtl="86400" />
+	<flow name="member5AlertFlow" doc:id="c898e259-c7e6-45b9-9b6a-18617e3d8e55" >
+		<http:listener doc:name="Listener" doc:id="ba4bda3a-90e9-4f70-abcc-c479f2bd6b28" config-ref="HTTP_Listener_config" path="/member5">
+			<http:response >
+				<http:body ><![CDATA[#[%dw 2.0
+output application/json
+---
+{
+  transactionId: vars.originalPayload.transactionId default "UNKNOWN",
+  alertStatus: vars.alertStatus default "PROCESSED",
+  message: if (vars.alertStatus == "SUPPRESSED")
+             "Duplicate alert suppressed"
+           else if (vars.alertStatus == "SENT")
+             "Alert email sent successfully"
+           else
+             "Payment event processed"
+}]]]></http:body>
+			</http:response>
+		</http:listener>
+		<set-variable value='#[payload]' doc:name="Set Original Payload" doc:id="4d91a1ad-b6b1-4a3b-9e95-da633db8bbe4" variableName="originalPayload"/>
+		<logger level="INFO" doc:name="Logger" doc:id="e309689a-6ee3-4789-b599-de5f771c0bf4" message="Member 5 alert flow received a payment event"/>
+		<choice doc:name="Choice" doc:id="1f407d93-a755-47e9-b626-50e416667944" >
+			<when expression='#[payload.riskBand == "HIGH" or payload.decision == "BLOCK"]'>
+				<logger level="INFO" doc:name="Logger" doc:id="e46fb0b1-b282-4259-9e28-6b7f0194d115" message="HIGH/BLOCK transaction detected - alert required"/>
+				<set-variable value='#["HIGH RISK PAYMENT ALERT - " ++ payload.transactionId]' doc:name="Set Variable" doc:id="0e82b505-7e28-4676-860e-9e10feaa8c6c" variableName="emailSubject"/>
+				<set-variable value='#[if (payload.maskedCardNumber != null)&#10;    "XXXXXXXXXXXX" ++ (payload.maskedCardNumber as String)[-4 to -1]&#10;  else&#10;    "UNKNOWN"]' doc:name="Set Variable" doc:id="8b85da4e-3cca-46f2-b0ac-d76d08dc58c8" variableName="safeCardNumber"/>
+				<os:retrieve doc:name="Retrieve" doc:id="14b787c7-12c6-4f51-b0dd-f6def30ef9dc" key="#[vars.originalPayload.maskedCardNumber]" objectStore="Alert_Throttle_Store" target="previousAlert">
+					<os:default-value ><![CDATA[#["NO_PREVIOUS_ALERT"]]]></os:default-value>
+				</os:retrieve>
+				<set-variable value="#[vars.originalPayload.maskedCardNumber]" doc:name="Set Variable" doc:id="d70b2817-f4f9-407b-9a9a-c0bedb9ec5c4" variableName="cardKey" />
+				<set-variable value='#[vars.originalPayload.correlationId default "UNKNOWN"]' doc:name="Set Correlation ID" doc:id="2870bf98-9e1e-4975-a74c-360e6b8bbeaf" variableName="correlationId"/>
+				<choice doc:name="Choice" doc:id="1e3a9759-b29c-47c1-badd-7bfd7c526351">
+					<when expression='#[vars.previousAlert != "NO_PREVIOUS_ALERT"]'>
+						<logger level="INFO" doc:name="Logger" doc:id="6c2ce649-5bd0-450e-ab56-2b5bad5f5f4b" message='#["Alert throttled - repeated card alert suppressed. Card: " ++ (vars.safeCardNumber default "UNKNOWN") ++ ", Correlation ID: " ++ (vars.correlationId default "UNKNOWN")]'/>
+						<set-variable value="SUPPRESSED" doc:name="Set Suppressed Status" doc:id="407201bb-8080-40d1-9e6a-408dd2d35854" variableName="alertStatus"/>
+					</when>
+					<otherwise >
+						<ee:transform doc:name="Transform Message" doc:id="b74d8f5d-5307-43c5-a159-4f7920246e11">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output text/plain
+---
+"Payment Fraud Alert\n\n" ++
+"Transaction ID: " ++ payload.transactionId ++ "\n" ++
+"Event ID: " ++ payload.eventId ++ "\n" ++
+"Card: " ++ vars.safeCardNumber ++ "\n" ++
+"Amount: " ++ (payload.amount as String) ++ "\n" ++
+"Risk Score: " ++ (payload.riskScore as String) ++ "\n" ++
+"Risk Band: " ++ payload.riskBand ++ "\n" ++
+"Decision: " ++ payload.decision ++ "\n\n" ++
+"Triggered Rules:\n- " ++
+(payload.ruleHits joinBy "\n- ") ++ "\n\n" ++
+"Correlation ID: " ++ payload.correlationId]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+						<until-successful maxRetries="3" doc:name="Until Successful" doc:id="a165f143-a500-4c79-8de0-b3d4dca2ef6f" millisBetweenRetries="5000">
+							<email:send doc:name="Send" doc:id="e90912e3-5117-4da0-8475-b3bfac22ffad" config-ref="Email_SMTP" fromAddress="inapanuribanny@gmail.com" subject="#[vars.emailSubject]">
+					<email:to-addresses>
+								<email:to-address value="inapanuribanny@gmail.com" />
+					</email:to-addresses>
+					<email:body contentTransferEncoding="8BIT">
+					</email:body>
+				</email:send>
+						</until-successful>
+						<os:store doc:name="Store" doc:id="8dbbaf1d-8063-43dd-a779-903ba85cf12a" key="#[vars.cardKey]" objectStore="Alert_Throttle_Store"/>
+						<set-variable value="SENT" doc:name="Set Sent Status" doc:id="f282b772-c139-4c07-a7d2-caa7c4d6e21f" variableName="alertStatus"/>
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="d0703f90-56fb-434c-a610-d65234ac04a9" message='#["No alert required - transaction is stable. Transaction ID: " ++ payload.transactionId ++ ", Correlation ID: " ++ payload.correlationId]'/>
+			</otherwise>
+		</choice>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="86821129-0e30-418a-8423-d71084127f86" type="ANY">
+				<set-variable value='#[error.description default "Unknown error"]' doc:name="Set DLQ Error Reason" doc:id="83074ea8-9cfc-4a31-b557-5af8286617e0" variableName="dlqErrorReason"/>
+				<logger level="ERROR" doc:name="Logger" doc:id="f537af5a-4219-4fe7-8296-deb20489fd6a" message='#["Member 5 error handler triggered. Error type: " ++ (error.errorType.identifier default "UNKNOWN") ++ ", Description: " ++ (error.description default "No description")]'/>
+				<os:store doc:name="Store" doc:id="2b12768a-44f6-4d85-ae6b-38925f5deeed" key='#["DLQ-" ++ (vars.correlationId default "UNKNOWN")]' objectStore="DLQ_Store">
+					<os:value ><![CDATA[#[%dw 2.0
+output application/java
+---
+{
+    originalPayload: vars.originalPayload,
+    errorReason: vars.dlqErrorReason default "Unknown error",
+    correlationId: vars.correlationId default "UNKNOWN"
+}]]]></os:value>
+				</os:store>
+				<logger level="INFO" doc:name="Logger" doc:id="cfd35264-9f9d-4087-8001-8edee6ea6376" message='#["DLQ stored. Key: DLQ-" ++ (vars.correlationId default "UNKNOWN")]'/>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<flow name="member5-alert-errorFlow" doc:id="5cb14449-de57-4b13-a5ce-1e55a5956c58" >
+		<http:listener doc:name="Listener" doc:id="f01cb2ba-d7d4-4072-8602-5d720fbd1e50" config-ref="HTTP_Listener_config" path="/dlq"/>
+		<os:retrieve doc:name="Retrieve" doc:id="e18a0b3d-8080-443b-98cb-54e0548a31db" key='#["DLQ-" ++ (read(payload, "application/json").correlationId as String)]' objectStore="DLQ_Store">
+			<os:default-value ><![CDATA[#["NOT_FOUND"]]]></os:default-value>
+		</os:retrieve>
+		<ee:transform doc:name="Transform Message" doc:id="0ed93919-a675-46a7-a5c3-2079df5530d9" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="180fd57a-f2ec-4eef-9463-cc03e8b5c536" message='#[write(payload, "application/json")]'/>
+	</flow>
+</mule>

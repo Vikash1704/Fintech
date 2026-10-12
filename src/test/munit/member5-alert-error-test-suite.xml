@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools  http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+	<munit:config name="member5-alert-error-test-suite.xml" />
+	<munit:test name="member5-alert-error-test-suite-member5AlertFlowTest" doc:id="34d00a22-7892-4af3-8878-62b964fac6a5" description="Test">
+		<munit:behavior >
+			<munit-tools:mock-when doc:name="Mock when" doc:id="6ba357ce-9e1c-4756-bfe6-9f2d189a0719" processor="os:retrieve">
+				<munit-tools:with-attributes >
+					<munit-tools:with-attribute whereValue="Retrieve" attributeName="doc:name" />
+				</munit-tools:with-attributes>
+				<munit-tools:then-return >
+					<munit-tools:payload value='#["PREVIOUS_ALERT_SENT"]' />
+				</munit-tools:then-return>
+			</munit-tools:mock-when>
+		</munit:behavior>
+		<munit:execution >
+			<munit:set-event doc:name="Set Event" doc:id="bda8dff8-e425-4332-afa1-aa52400cca0f" >
+				<munit:payload value='#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;  eventId: "EVT-MUNIT-001",&#10;  transactionId: "TXN-MUNIT-001",&#10;  customerRiskProfile: "PREMIUM",&#10;  maskedCardNumber: "XXXXXXXXXXXX7314",&#10;  amount: 120000.00,&#10;  riskScore: 92,&#10;  riskBand: "HIGH",&#10;  decision: "BLOCK",&#10;  alertStatus: "PENDING",&#10;  ruleHits: ["HIGH_AMOUNT", "COUNTRY_MISMATCH"],&#10;  correlationId: "CORR-MUNIT-001"&#10;}]' mediaType="application/json" />
+			</munit:set-event>
+			<flow-ref doc:name="Flow-ref to member5AlertFlow" doc:id="9ec7d886-a68f-4eef-b263-82905b5f456c" name="member5AlertFlow"/>
+		</munit:execution>
+		<munit:validation >
+			<munit-tools:assert-that doc:name="Assert that" doc:id="a3f8b2d6-0b7f-4962-b7ff-c62744f5cf9e" message="Expected alertStatus to be SUPPRESSED for a duplicate transaction." expression="#[vars.alertStatus]" is='#[MunitTools::equalTo("SUPPRESSED")]'/>
+		</munit:validation>
+	</munit:test>
+
+
+</mule>

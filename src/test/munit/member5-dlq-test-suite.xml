@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <munit:config name="member5-dlq-test-suite.xml"/>
+
+    <!-- Test 1: Execute the Member 5 alert flow -->
+    <munit:test name="member5-dlq-test-suite-member5AlertFlowTest"
+                doc:id="c1489c55-d70a-4ebe-b9cf-e0dcca331946"
+                description="Test Member 5 alert flow">
+
+        <munit:execution>
+            <munit:set-event doc:name="Set Event"
+                             doc:id="8ccdac11-545d-4f5f-b140-ad5b60217715">
+                
+<munit:payload
+    value="#['{&quot;eventId&quot;:&quot;EVT-MUNIT-001&quot;,&quot;transactionId&quot;:&quot;TXN-MUNIT-001&quot;,&quot;customerRiskProfile&quot;:&quot;PREMIUM&quot;,&quot;maskedCardNumber&quot;:&quot;XXXXXXXXXXXX7314&quot;,&quot;amount&quot;:120000.00,&quot;riskScore&quot;:92,&quot;riskBand&quot;:&quot;HIGH&quot;,&quot;decision&quot;:&quot;BLOCK&quot;,&quot;alertStatus&quot;:&quot;PENDING&quot;,&quot;ruleHits&quot;:[&quot;HIGH_AMOUNT&quot;,&quot;COUNTRY_MISMATCH&quot;],&quot;correlationId&quot;:&quot;CORR-MUNIT-001&quot;}']"
+    mediaType="application/json"/>
+
+            </munit:set-event>
+
+            <flow-ref doc:name="Flow-ref to member5AlertFlow"
+                      doc:id="cc3bd350-287c-4254-ade9-6931367ab97e"
+                      name="member5AlertFlow"/>
+        </munit:execution>
+    </munit:test>
+
+    <!-- Test 2: Check DLQ retrieval flow -->
+    <munit:test name="member5-dlq-test-suite-member5-alert-errorFlowTest"
+                doc:id="d1740d22-38dc-42e1-93e5-c3adc1de7c50"
+                description="Test DLQ retrieval flow">
+
+        <munit:execution>
+            <munit:set-event doc:name="Set Event"
+                             doc:id="839c14a7-4c0c-4127-930d-8e9866ceb56c">
+				<munit:payload value="#['{&quot;correlationId&quot;:&quot;CORR-011&quot;}']" mediaType="text/plain" />
+
+            </munit:set-event>
+
+            <os:store doc:name="Store" doc:id="1a840be0-a41f-491a-8594-b20fe3ecd378" key='#["DLQ-CORR-011"]' objectStore="DLQ_Store">
+				<os:value ><![CDATA[#['{"correlationId":"CORR-011","errorReason":"MUnit test entry"}']]]></os:value>
+			</os:store>
+			<flow-ref doc:name="Flow-ref to member5-alert-errorFlow"
+                      doc:id="45b31a76-3dd4-4980-ae32-4fbcbf06062c"
+                      name="member5-alert-errorFlow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                doc:name="Assert DLQ entry found"
+                doc:id="73b15670-1754-4c70-81e9-532025b6c554"
+                expression="#[payload != 'NOT_FOUND']"
+                is="#[MunitTools::equalTo(true)]"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>
