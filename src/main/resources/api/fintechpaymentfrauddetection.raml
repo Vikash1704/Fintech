@@ -1,0 +1,336 @@
+#%RAML 1.0
+title: FintechPaymentFraudDetection
+
+description: API for receiving payment events for fraud detection
+
+version: v1
+
+baseUri: http://localhost:8081/api
+
+mediaType:
+  - application/json
+
+types:
+
+  PaymentEvent:
+
+    type: object
+    additionalProperties: false
+
+    properties:
+
+      eventId:
+        type: string
+        required: true
+        description: Unique payment event identifier
+        example: "PAY-EVT-2026-884512"
+
+      eventTimestamp:
+        type: datetime
+        required: true
+        description: Timestamp when the payment event occurred
+        example: "2026-09-11T14:22:07+05:30"
+
+      transaction:
+        type: object
+        required: true
+
+        properties:
+
+          transactionId:
+            type: string
+            required: true
+            example: "TXN-99120455"
+
+          amount:
+            type: number
+            required: true
+            minimum: 0.01
+            example: 248500.00
+
+          currency:
+            type: string
+            required: true
+            minLength: 3
+            maxLength: 3
+            example: "INR"
+
+          channel:
+            type: string
+            required: true
+            example: "ONLINE"
+
+          entryMode:
+            type: string
+            required: true
+            example: "CARD_NOT_PRESENT"
+
+      card:
+        type: object
+        required: true
+
+        properties:
+
+          cardToken:
+            type: string
+            required: true
+            example: "TKN-4d9a77e1c0"
+
+          maskedCardNumber:
+            type: string
+            required: true
+            description: Masked card number. Full card number must never be stored or logged.
+            example: "XXXXXXXXXXXX4417"
+
+          cardType:
+            type: string
+            required: true
+            example: "CREDIT"
+
+          issuingCountry:
+            type: string
+            required: true
+            example: "IN"
+
+      customer:
+        type: object
+        required: true
+
+        properties:
+
+          customerId:
+            type: string
+            required: true
+            example: "CUST-77219"
+
+          name:
+            type: string
+            required: true
+            example: "Meena Raghavan"
+
+          email:
+            type: string
+            required: true
+            example: "meena.raghavan@example.com"
+
+          riskProfile:
+            type: string
+            required: true
+            example: "STANDARD"
+
+      merchant:
+        type: object
+        required: true
+
+        properties:
+
+          merchantId:
+            type: string
+            required: true
+            example: "MER-5581"
+
+          merchantName:
+            type: string
+            required: true
+            example: "Global Gadgets Online"
+
+          merchantCategory:
+            type: string
+            required: true
+            example: "ELECTRONICS"
+
+          merchantCountry:
+            type: string
+            required: true
+            example: "SG"
+
+      device:
+        type: object
+        required: true
+
+        properties:
+
+          ipAddress:
+            type: string
+            required: true
+            example: "203.0.113.77"
+
+          deviceId:
+            type: string
+            required: true
+            example: "DEV-ax91kk"
+
+          geoCountry:
+            type: string
+            required: true
+            example: "SG"
+
+      correlationId:
+        type: string
+        required: true
+        description: Correlation identifier retained throughout the fraud processing flow.
+        example: "CORR-001"
+
+
+  PaymentAcceptedResponse:
+
+    type: object
+
+    properties:
+
+      eventId:
+        type: string
+        example: "PAY-EVT-2026-884512"
+
+      transactionId:
+        type: string
+        example: "TXN-99120455"
+
+      status:
+        type: string
+        example: "QUEUED_FOR_REVIEW"
+
+      riskScore:
+        type: number
+        example: 0
+
+      riskBand:
+        type: string
+        example: "PENDING"
+
+      correlationId:
+        type: string
+        example: "CORR-001"
+
+
+  ErrorResponse:
+
+    type: object
+
+    properties:
+
+      status:
+        type: string
+        example: "ERROR"
+
+      message:
+        type: string
+        example: "Invalid payment event"
+
+      correlationId:
+        type: string
+        example: "CORR-001"
+
+
+/payments/events:
+
+  post:
+
+    description: Receives a payment event and submits it for fraud detection.
+
+    body:
+
+      application/json:
+
+        type: PaymentEvent
+
+        example:
+          {
+            "eventId": "PAY-EVT-2026-884512",
+            "eventTimestamp": "2026-09-11T14:22:07+05:30",
+
+            "transaction": {
+              "transactionId": "TXN-99120455",
+              "amount": 248500.00,
+              "currency": "INR",
+              "channel": "ONLINE",
+              "entryMode": "CARD_NOT_PRESENT"
+            },
+
+            "card": {
+              "cardToken": "TKN-4d9a77e1c0",
+              "maskedCardNumber": "XXXXXXXXXXXX4417",
+              "cardType": "CREDIT",
+              "issuingCountry": "IN"
+            },
+
+            "customer": {
+              "customerId": "CUST-77219",
+              "name": "Meena Raghavan",
+              "email": "meena.raghavan@example.com",
+              "riskProfile": "STANDARD"
+            },
+
+            "merchant": {
+              "merchantId": "MER-5581",
+              "merchantName": "Global Gadgets Online",
+              "merchantCategory": "ELECTRONICS",
+              "merchantCountry": "SG"
+            },
+
+            "device": {
+              "ipAddress": "203.0.113.77",
+              "deviceId": "DEV-ax91kk",
+              "geoCountry": "SG"
+            },
+
+            "correlationId": "CORR-001"
+          }
+
+    responses:
+
+      202:
+
+        description: Payment event accepted for fraud processing.
+
+        body:
+
+          application/json:
+
+            type: PaymentAcceptedResponse
+
+            example:
+              {
+                "eventId": "PAY-EVT-2026-884512",
+                "transactionId": "TXN-99120455",
+                "status": "QUEUED_FOR_REVIEW",
+                "riskScore": 0,
+                "riskBand": "PENDING",
+                "correlationId": "CORR-001"
+              }
+
+
+      400:
+
+        description: Invalid payment event.
+
+        body:
+
+          application/json:
+
+            type: ErrorResponse
+
+            example:
+              {
+                "status": "ERROR",
+                "message": "Invalid payment event",
+                "correlationId": "CORR-001"
+              }
+
+
+      500:
+
+        description: Internal server error.
+
+        body:
+
+          application/json:
+
+            type: ErrorResponse
+
+            example:
+              {
+                "status": "ERROR",
+                "message": "Internal server error",
+                "correlationId": "CORR-001"
+              }
