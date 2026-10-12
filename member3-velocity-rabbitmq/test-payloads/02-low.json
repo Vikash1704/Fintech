@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-1002",
+  "transactionId": "txn-1002",
+  "correlationId": "corr-low-0002",
+  "cardToken": "tok_low_0002",
+  "maskedCardNumber": "5500-XXXX-XXXX-0004",
+  "amount": 120.00,
+  "currency": "INR",
+  "merchantId": "m-102",
+  "merchantName": "Corner Cafe",
+  "timestamp": "2026-10-12T10:00:00Z",
+  "riskLevel": "LOW",
+  "fraudScore": 8
+}

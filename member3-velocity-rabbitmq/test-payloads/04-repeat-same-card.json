@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-2001",
+  "transactionId": "txn-2001",
+  "correlationId": "corr-repeat-0001",
+  "cardToken": "tok_velocity_demo_01",
+  "maskedCardNumber": "4111-XXXX-XXXX-2222",
+  "amount": 75.00,
+  "currency": "INR",
+  "merchantId": "m-777",
+  "merchantName": "Quick Mart",
+  "timestamp": "2026-10-12T10:00:00Z",
+  "riskLevel": "LOW",
+  "fraudScore": 15
+}

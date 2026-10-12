@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-1003",
+  "transactionId": "txn-1003",
+  "correlationId": "corr-medium-0003",
+  "cardToken": "tok_medium_0003",
+  "maskedCardNumber": "3400-XXXX-XXXX-9999",
+  "amount": 2450.75,
+  "currency": "INR",
+  "merchantId": "m-310",
+  "merchantName": "Fashion Hub",
+  "timestamp": "2026-10-12T10:00:00Z",
+  "riskLevel": "MEDIUM",
+  "fraudScore": 55
+}
