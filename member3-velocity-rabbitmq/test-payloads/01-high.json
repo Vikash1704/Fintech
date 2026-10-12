@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-1001",
+  "transactionId": "txn-1001",
+  "correlationId": "corr-high-0001",
+  "cardToken": "tok_high_0001",
+  "maskedCardNumber": "4111-XXXX-XXXX-1111",
+  "amount": 9800.50,
+  "currency": "INR",
+  "merchantId": "m-501",
+  "merchantName": "Electro World",
+  "timestamp": "2026-10-12T10:00:00Z",
+  "riskLevel": "HIGH",
+  "fraudScore": 92
+}

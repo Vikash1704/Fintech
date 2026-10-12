@@ -1,0 +1,515 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+	<!-- ====================== GLOBAL CONFIGURATION ====================== -->
+	<configuration-properties file="application.properties" doc:name="Configuration properties" doc:id="95f2c7b0-4145-5ca3-b404-5530450991db"/>
+
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="30c48e88-a4c6-5707-af49-d15173f673db">
+		<http:listener-connection host="${http.host}" port="${http.port}"/>
+	</http:listener-config>
+
+	<amqp:config name="AMQP_Config" doc:name="AMQP Config" doc:id="30d28ac1-f33f-52e1-8c42-5777fa2d32d2">
+		<amqp:connection host="${amqp.host}" port="${amqp.port}" username="${amqp.username}" password="${amqp.password}" virtualHost="${amqp.virtualHost}"/>
+	</amqp:config>
+
+	<!-- Sliding-window state: one entry per cardToken holding a JSON list of epoch-millis timestamps.
+	     entryTtl is housekeeping only; the 5-minute window is computed from the stored timestamps. -->
+	<os:object-store name="Velocity_Store" doc:name="Object store" doc:id="3745282e-4443-508e-8200-b940632e59a3"
+		persistent="true" entryTtl="${velocity.store.ttlSeconds}" entryTtlUnit="SECONDS"
+		expirationInterval="30" expirationIntervalUnit="SECONDS"/>
+
+	<!-- Short-lived per-cardToken lock (acquired with failIfPresent=true) -->
+	<os:object-store name="Velocity_Lock_Store" doc:name="Object store" doc:id="72e6e543-5227-52bc-b586-87ab15df6a40"
+		persistent="false" entryTtl="${velocity.lock.ttlSeconds}" entryTtlUnit="SECONDS"
+		expirationInterval="5" expirationIntervalUnit="SECONDS"/>
+
+	<!-- ====================== MAIN FLOW ====================== -->
+	<flow name="fintech-fraud-detectionFlow" doc:id="78fb0182-eb7a-5797-a8ee-54ec04f1be3f">
+		<http:listener config-ref="HTTP_Listener_config" path="${http.path}" allowedMethods="POST" doc:name="HTTP Listener POST /velocity" doc:id="94201dd9-0b8e-554a-ae5f-2ca241b89bdd">
+			<http:response statusCode="#[vars.httpStatus default 200]"/>
+		</http:listener>
+
+		<set-variable variableName="httpStatus" value="#[200]" doc:name="Default HTTP status" doc:id="df8ba334-7c32-5aaf-a972-26e70c574f9f"/>
+		<set-variable variableName="routingStatus" value="NOT_PUBLISHED" doc:name="Default routing status" doc:id="0fade844-c459-5c0e-b87c-8a2633860c40"/>
+
+		<!-- 1. Preserve original transaction (as a parsed object; malformed body => 400) -->
+		<try doc:name="Try - Parse and Preserve Original Transaction" doc:id="a41b1bb5-5e16-56ff-a988-983dcb8c185b">
+			<ee:transform doc:name="Preserve Original Transaction" doc:id="fd59cd41-d905-5e07-a7ee-7d4bbc75c562">
+				<ee:message/>
+				<ee:variables>
+					<ee:set-variable variableName="originalTransaction"><![CDATA[%dw 2.0
+output application/java
+---
+if (payload is Object) payload else null]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<error-handler>
+				<on-error-propagate enableNotifications="false" logException="false" doc:name="On Error Propagate - malformed body" doc:id="12d53da5-4b18-5499-a79d-6afa5e8931ae">
+					<set-variable variableName="validationErrors" value="#[['Request body must be a valid JSON object']]" doc:name="Set validationErrors" doc:id="77e965e6-c1c8-5c29-976e-55a8ca330105"/>
+					<raise-error type="FRAUD:INVALID_INPUT" description="Malformed request body" doc:name="Raise FRAUD:INVALID_INPUT" doc:id="c9781c9a-e2fa-588d-8295-a803ab84bc2a"/>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+
+		<!-- 2. Validate required fields (never echoes input values) -->
+		<ee:transform doc:name="Validate Required Fields" doc:id="68eba007-faca-58aa-8a97-e57b22dfeedc">
+			<ee:message/>
+			<ee:variables>
+				<ee:set-variable variableName="validationErrors"><![CDATA[%dw 2.0
+import try from dw::Runtime
+output application/java
+var tx = vars.originalTransaction
+var useEventTs = (p('velocity.useEventTimestamp') as Boolean)
+var allowedLevels = ["HIGH", "MEDIUM", "LOW"]
+fun isNonBlankString(v) = (v is String) and (trim(v) != "")
+fun looksLikeCardNumber(v) = (v is String) and (v matches /^(\d[ \-]?){13,19}$/)
+---
+if (tx == null) ["Request body must be a JSON object"]
+else flatten([
+	(if (not isNonBlankString(tx.cardToken)) ["cardToken is required and must be a non-empty string"]
+	 else if (looksLikeCardNumber(tx.cardToken)) ["cardToken must be an opaque token, not a card number"]
+	 else if (not (tx.cardToken matches /^[A-Za-z0-9._:\-]{8,128}$/)) ["cardToken must be 8-128 characters: letters, digits, '.', '_', ':' or '-'"]
+	 else []),
+	(if (not isNonBlankString(tx.correlationId)) ["correlationId is required and must be a non-empty string"]
+	 else if (sizeOf(tx.correlationId) > 128) ["correlationId must be at most 128 characters"]
+	 else []),
+	(if (not isNonBlankString(tx.riskLevel)) ["riskLevel is required (HIGH, MEDIUM or LOW)"]
+	 else if (not (allowedLevels contains upper(trim(tx.riskLevel)))) ["riskLevel must be one of HIGH, MEDIUM, LOW"]
+	 else []),
+	(if (tx.eventId != null and not (tx.eventId is String)) ["eventId must be a string when present"] else []),
+	(if (tx.transactionId != null and not (tx.transactionId is String)) ["transactionId must be a string when present"] else []),
+	(if (tx.amount != null and not (tx.amount is Number)) ["amount must be a number when present"] else []),
+	(if (looksLikeCardNumber(tx.maskedCardNumber)) ["maskedCardNumber must be masked; full card numbers are not accepted"] else []),
+	(if (tx.cardNumber != null or tx.pan != null or tx.cvv != null) ["Full card number / CVV fields are not accepted; use cardToken"] else []),
+	(if (useEventTs and not isNonBlankString(tx.timestamp)) ["timestamp is required when velocity.useEventTimestamp=true"]
+	 else if (useEventTs and not ((try(() -> tx.timestamp as DateTime)).success)) ["timestamp must be an ISO-8601 date-time, e.g. 2026-01-01T10:00:00Z"]
+	 else [])
+])]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<choice doc:name="Choice - Input valid?" doc:id="5a4f479d-b453-588e-9185-a3210177ecdf">
+			<when expression="#[sizeOf(vars.validationErrors) &gt; 0]">
+				<logger level="WARN" message="#['Transaction rejected by validation: ' ++ write(vars.validationErrors, 'application/json', {indent: false})]" doc:name="Log rejection" doc:id="0d046c3a-cd6f-5cce-be4b-c69c1965259f"/>
+				<raise-error type="FRAUD:INVALID_INPUT" description="Transaction failed validation" doc:name="Raise FRAUD:INVALID_INPUT" doc:id="c6c08a7c-1f67-5940-9556-6c745e9f719d"/>
+			</when>
+			<otherwise>
+				<logger level="DEBUG" message="Input validation passed" doc:name="Validation passed" doc:id="bb692de8-7cd2-5332-9cfd-6193a063be05"/>
+			</otherwise>
+		</choice>
+
+		<!-- 3. Extract cardToken (+ correlationId, normalised riskLevel, reference time) -->
+		<ee:transform doc:name="Extract cardToken" doc:id="09a06959-0491-5f00-9e91-c984a279a95b">
+			<ee:message/>
+			<ee:variables>
+				<ee:set-variable variableName="cardToken"><![CDATA[%dw 2.0
+output application/java
+---
+vars.originalTransaction.cardToken]]></ee:set-variable>
+				<ee:set-variable variableName="correlationId"><![CDATA[%dw 2.0
+output application/java
+---
+vars.originalTransaction.correlationId]]></ee:set-variable>
+				<ee:set-variable variableName="riskLevel"><![CDATA[%dw 2.0
+output application/java
+---
+upper(trim(vars.originalTransaction.riskLevel))]]></ee:set-variable>
+				<ee:set-variable variableName="referenceMillis"><![CDATA[%dw 2.0
+output application/java
+---
+if (p('velocity.useEventTimestamp') as Boolean)
+	(vars.originalTransaction.timestamp as DateTime as Number {unit: "milliseconds"})
+else
+	(now() as Number {unit: "milliseconds"})]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+
+		<!-- 4-8. Retrieve / prune / add / count / store (under a per-card lock) -->
+		<flow-ref name="velocity-update-flow" doc:name="Flow Reference - velocity-update-flow" doc:id="009bcf6f-68ec-5c99-a3b5-05e7c0d9baef"/>
+
+		<!-- 9. Build enriched transaction JSON (keeps all original fields; riskLevel upper-cased; velocity merged) -->
+		<ee:transform doc:name="Build Enriched Transaction JSON" doc:id="b7a3e8bd-13b9-56fd-8260-1c3dc3264979">
+			<ee:message>
+				<ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+var tx = vars.originalTransaction default {}
+var existingVelocity = if (tx.velocity is Object) tx.velocity else {}
+---
+(tx - "velocity" - "riskLevel") ++ {
+    riskLevel: vars.riskLevel,
+    velocity: existingVelocity ++ (vars.velocity default {})
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable variableName="enrichedTransaction" value="#[payload]" doc:name="Keep enriched transaction" doc:id="ac1c1023-7f4f-5835-9dfc-d425cc4af5d9"/>
+		<logger level="INFO" message="#['Enriched correlationId=' ++ vars.correlationId ++ ' riskLevel=' ++ vars.riskLevel ++ ' velocityCount=' ++ (vars.velocity.count as String) ++ ' window=' ++ (vars.velocity.windowSeconds as String) ++ 's']" doc:name="Log enrichment" doc:id="d6df5940-7866-516b-9239-72eaf9e5ca5a"/>
+
+		<!-- 10. Choice router -->
+		<choice doc:name="Choice - Route by riskLevel" doc:id="54e62368-413c-5a34-bc5b-ee54633530c0">
+			<when expression="#[vars.riskLevel == 'HIGH']">
+				<set-variable variableName="targetQueue" value="${amqp.queue.high}" doc:name="Target queue (HIGH)" doc:id="f4d4a7c2-0fa3-572b-ae41-1d5493aa9f07"/>
+				<set-variable variableName="messagePriority" value="#[p('amqp.priority.high') as Number]" doc:name="Priority (HIGH)" doc:id="07df5dd2-5d7a-4846-9cbd-68c71c19a851"/>
+				<try doc:name="Try - Publish HIGH" doc:id="138f40f2-fb83-57f5-96f3-1944d1592d32">
+					<until-successful maxRetries="${retry.maxRetries}" millisBetweenRetries="${retry.millisBetweenRetries}" doc:name="Until Successful - HIGH" doc:id="362ad2cc-1fc6-5dd6-b7b2-37028f7ecd05">
+						<logger level="INFO" message="#['Publish attempt correlationId=' ++ vars.correlationId ++ ' queue=' ++ vars.targetQueue]" doc:name="Log attempt" doc:id="0c5ae2ea-4d24-5162-91d4-b31924c06953"/>
+						<flow-ref name="primary-publish-failure-injection-flow" doc:name="Flow Reference - failure injection" doc:id="4d7cbabc-ad76-542e-9284-e252f929c7cd"/>
+						
+
+<amqp:publish
+    config-ref="AMQP_Config"
+    exchangeName="#['']"
+    deliveryMode="PERSISTENT"
+    requestBrokerConfirms="true"
+    doc:name="Publish to fraud-high-priority"
+    doc:id="3c8edd6a-78b3-43a4-b674-cb6ea3716b77">
+
+    <amqp:routing-keys>
+        <amqp:routing-key value="#[vars.targetQueue]" />
+    </amqp:routing-keys>
+
+    <amqp:message>
+        <amqp:body><![CDATA[#[payload]]]></amqp:body>
+        <amqp:properties
+            contentType="application/json"
+            priority="#[vars.messagePriority as Number]"
+            correlationId="#[vars.correlationId]" />
+    </amqp:message>
+</amqp:publish>
+
+
+					</until-successful>
+					<set-variable variableName="routingStatus" value="PUBLISHED" doc:name="Routing status = PUBLISHED" doc:id="f95604b3-ad65-5b4c-87fd-cf9dc5222dbd"/>
+					<error-handler>
+						<on-error-continue type="MULE:RETRY_EXHAUSTED" enableNotifications="true" logException="false" doc:name="On Error Continue - HIGH retries exhausted" doc:id="e7fad6a0-c07d-5d79-bece-f63ec361583c">
+							<flow-ref name="dead-letter-after-retry-exhausted-flow" doc:name="Flow Reference - dead-letter" doc:id="d9b0d586-e96f-5bf4-a335-ce021f4a9f3d"/>
+						</on-error-continue>
+					</error-handler>
+				</try>
+			</when>
+			<when expression="#[['LOW', 'MEDIUM'] contains vars.riskLevel]">
+				<set-variable variableName="targetQueue" value="${amqp.queue.standard}" doc:name="Target queue (LOW/MEDIUM)" doc:id="791d7341-352e-5af2-b5c5-4cd5e97d44a8"/>
+				<set-variable variableName="messagePriority" value="#[p('amqp.priority.standard') as Number]" doc:name="Priority (LOW/MEDIUM)" doc:id="3ec6461f-39e9-4228-9f6e-42d76e82edb3"/>
+				<try doc:name="Try - Publish LOW/MEDIUM" doc:id="d8aa6486-da3d-5cc9-a47a-b017c3c39b40">
+					<until-successful maxRetries="${retry.maxRetries}" millisBetweenRetries="${retry.millisBetweenRetries}" doc:name="Until Successful - LOW/MEDIUM" doc:id="77ef3ec2-5cfb-5672-a4a0-99ab17e7c755">
+						<logger level="INFO" message="#['Publish attempt correlationId=' ++ vars.correlationId ++ ' queue=' ++ vars.targetQueue]" doc:name="Log attempt" doc:id="86c8db24-0a93-54c1-8ff4-378711002635"/>
+						<flow-ref name="primary-publish-failure-injection-flow" doc:name="Flow Reference - failure injection" doc:id="8e30f92b-6a14-577b-a491-f462d8177b14"/>
+
+<amqp:publish
+    config-ref="AMQP_Config"
+    exchangeName="#['']"
+    deliveryMode="PERSISTENT"
+    requestBrokerConfirms="true"
+    doc:name="Publish to fraud-standard"
+    doc:id="abec25b3-b6db-4c53-bdc6-5a2cdf91dd92">
+
+    <amqp:routing-keys>
+        <amqp:routing-key value="#[vars.targetQueue]" />
+    </amqp:routing-keys>
+
+    <amqp:message>
+        <amqp:body><![CDATA[#[payload]]]></amqp:body>
+        <amqp:properties
+            contentType="application/json"
+            priority="#[vars.messagePriority as Number]"
+            correlationId="#[vars.correlationId]" />
+    </amqp:message>
+</amqp:publish>
+
+					</until-successful>
+					<set-variable variableName="routingStatus" value="PUBLISHED" doc:name="Routing status = PUBLISHED" doc:id="53e04d44-8261-5311-a9f7-ca47ec6bcbff"/>
+					<error-handler>
+						<on-error-continue type="MULE:RETRY_EXHAUSTED" enableNotifications="true" logException="false" doc:name="On Error Continue - LOW/MEDIUM retries exhausted" doc:id="7b320de7-4119-5f1b-86d0-dce1689196b0">
+							<flow-ref name="dead-letter-after-retry-exhausted-flow" doc:name="Flow Reference - dead-letter" doc:id="03235746-5a75-51b1-8701-20ac41332095"/>
+						</on-error-continue>
+					</error-handler>
+				</try>
+			</when>
+			<otherwise>
+				<set-variable variableName="validationErrors" value="#[['riskLevel is not routable']]" doc:name="Set validationErrors" doc:id="d88c9b3c-23b1-57cf-a41b-156915c1303c"/>
+				<raise-error type="FRAUD:INVALID_INPUT" description="Unroutable riskLevel" doc:name="Raise FRAUD:INVALID_INPUT" doc:id="3d65dd8f-f539-5202-8d06-8b6767cd07f3"/>
+			</otherwise>
+		</choice>
+
+		<!-- 11. HTTP response -->
+		<ee:transform doc:name="Build HTTP Response" doc:id="59c82fe1-f586-5e6d-8cd9-99d03c092f76">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var tx = vars.enrichedTransaction
+---
+{
+	status: vars.routingStatus,
+	correlationId: vars.correlationId,
+	(eventId: tx.eventId) if (tx.eventId != null),
+	(transactionId: tx.transactionId) if (tx.transactionId != null),
+	routing: {
+		riskLevel: vars.riskLevel,
+		queue: vars.targetQueue,
+		priority: vars.messagePriority,
+		published: vars.routingStatus == "PUBLISHED",
+		deadLettered: vars.routingStatus == "DEAD_LETTERED",
+		(deadLetterQueue: p('amqp.queue.dlq')) if (vars.routingStatus == "DEAD_LETTERED")
+	},
+	velocity: vars.velocity,
+	transaction: tx
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+
+		<error-handler>
+			<on-error-continue type="FRAUD:INVALID_INPUT" enableNotifications="false" logException="false" doc:name="On Error Continue - invalid input (400)" doc:id="ac48b70e-497d-53a5-b5cc-a6c4903cfb56">
+				<set-variable variableName="httpStatus" value="#[400]" doc:name="HTTP 400" doc:id="5ddf082c-d884-5c55-ad70-5313f51b05a5"/>
+				<ee:transform doc:name="Build 400 body" doc:id="f58e8457-e5bb-5e68-a005-9216df3a009c">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var cid = vars.originalTransaction.correlationId
+---
+{
+	status: "REJECTED",
+	(correlationId: cid) if (cid is String),
+	error: {
+		code: "INVALID_INPUT",
+		message: "The transaction failed validation and was not published.",
+		details: vars.validationErrors default []
+	}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+			<on-error-continue type="FRAUD:DLQ_PUBLISH_FAILED" enableNotifications="false" logException="false" doc:name="On Error Continue - DLQ publish failed (503)" doc:id="50187af9-2c6c-504f-b277-a17307435dba">
+				<logger level="ERROR" message="#['Primary publish AND DLQ publish failed correlationId=' ++ (vars.correlationId default 'n/a')]" doc:name="Log DLQ failure" doc:id="755a697e-e387-555d-960f-2c4c5b1d03a5"/>
+				<set-variable variableName="httpStatus" value="#[503]" doc:name="HTTP 503" doc:id="abd00962-aa7b-5017-9dfb-e8993128dfd4"/>
+				<ee:transform doc:name="Build 503 DLQ body" doc:id="9174d217-70bc-5436-8fa8-6cdc384f6c84">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	status: "FAILED",
+	correlationId: vars.correlationId,
+	routing: { riskLevel: vars.riskLevel, queue: vars.targetQueue, published: false, deadLettered: false },
+	error: {
+		code: "DLQ_PUBLISH_FAILED",
+		message: "Primary publish failed after retries and the transaction could not be dead-lettered. It was NOT delivered to any queue; the caller must retry."
+	}
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+			<on-error-continue type="FRAUD:VELOCITY_LOCK_TIMEOUT" enableNotifications="false" logException="false" doc:name="On Error Continue - velocity lock timeout (503)" doc:id="74e2d851-7d05-590a-be09-f1d138a45e4c">
+				<set-variable variableName="httpStatus" value="#[503]" doc:name="HTTP 503" doc:id="85b8db85-79b9-5017-86d0-9b19eab021da"/>
+				<ee:transform doc:name="Build 503 busy body" doc:id="edc1a601-130c-57a5-bf24-ca74126675f1">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	status: "FAILED",
+	correlationId: vars.correlationId,
+	error: { code: "VELOCITY_BUSY", message: "Velocity state for this card is busy. Nothing was published; please retry." }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+			<on-error-continue type="ANY" enableNotifications="true" logException="false" doc:name="On Error Continue - unexpected (500)" doc:id="b8f81821-865c-556a-9e54-cde0d0b75be2">
+				<logger level="ERROR" message="#['Unexpected error type=' ++ ((error.errorType.namespace default 'MULE') ++ ':' ++ (error.errorType.identifier default 'UNKNOWN')) ++ ' correlationId=' ++ ((vars.correlationId default 'n/a') as String)]" doc:name="Log unexpected error" doc:id="47b506ff-c5d7-5559-bf26-a758c586d165"/>
+				<set-variable variableName="httpStatus" value="#[500]" doc:name="HTTP 500" doc:id="b57165bc-73f6-512a-bd4f-af4818eb3f77"/>
+				<ee:transform doc:name="Build 500 body" doc:id="afbdc91f-b82f-5652-a2b3-0048df3a1b2f">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	status: "FAILED",
+	error: { code: "INTERNAL_ERROR", message: "The transaction could not be processed. Nothing was confirmed as published." }
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+
+	<!-- ====================== VELOCITY (read-modify-write under per-card lock) ====================== -->
+	<flow name="velocity-update-flow" doc:id="6a99cd90-143f-5b7a-9c7f-fdd82e72f7a8">
+		<set-variable variableName="lockKey" value="#['velocity-lock:' ++ ((vars.cardToken default '') as String)]" doc:name="Lock key" doc:id="7d3b0222-6c74-58f7-b472-d39e95dc5c55"/>
+
+		<try doc:name="Try - Acquire per-card lock" doc:id="6376a679-9e8a-5722-9519-7ca12a52d12e">
+			<until-successful maxRetries="${velocity.lock.maxRetries}" millisBetweenRetries="${velocity.lock.retryMillis}" doc:name="Until Successful - acquire lock" doc:id="c20db329-8666-5eb3-a65b-79d47ed7f804">
+				<os:store key="#[vars.lockKey]" failIfPresent="true" objectStore="Velocity_Lock_Store" doc:name="Store lock (failIfPresent)" doc:id="5368a701-f9e8-5dec-9ce4-237412d69441">
+					<os:value>#[vars.correlationId]</os:value>
+				</os:store>
+			</until-successful>
+			<error-handler>
+				<on-error-propagate type="MULE:RETRY_EXHAUSTED" enableNotifications="false" logException="false" doc:name="On Error Propagate - lock timeout" doc:id="9f6a29c3-e033-59c7-84a2-a078fade9df7">
+					<raise-error type="FRAUD:VELOCITY_LOCK_TIMEOUT" description="Could not acquire velocity lock" doc:name="Raise FRAUD:VELOCITY_LOCK_TIMEOUT" doc:id="14753ac8-2952-5382-8773-8073018f24d4"/>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+
+		<try doc:name="Try - Read, compute, store, release" doc:id="12028436-0214-50d6-8ef4-8e1e8f4aaa6b">
+			<!-- 4. Retrieve velocity state -->
+			<os:retrieve key="#[vars.cardToken]" objectStore="Velocity_Store" target="storedVelocityState" doc:name="Retrieve Velocity State" doc:id="f7556553-78d0-5508-b500-9e7e5976d5aa">
+				<os:default-value>#['{"timestamps":[]}']</os:default-value>
+			</os:retrieve>
+
+			<!-- 5-7. Remove expired timestamps, add current, count -->
+			<ee:transform doc:name="Prune Expired, Add Current, Count" doc:id="8e17ec48-d7a3-5952-8ac0-9a879ceaf8db">
+				<ee:message/>
+				<ee:variables>
+					<ee:set-variable variableName="velocityComputation"><![CDATA[%dw 2.0
+import try from dw::Runtime
+output application/java
+var useEventTs = (p('velocity.useEventTimestamp') as Boolean)
+var windowSeconds = (p('velocity.windowSeconds') as Number)
+var windowMs = windowSeconds * 1000
+var threshold = (p('velocity.threshold') as Number)
+var maxTs = (p('velocity.maxTimestamps') as Number)
+var cmp = upper(p('velocity.comparison'))
+var ref = (vars.referenceMillis as Number)
+var cutoff = ref - windowMs
+var parsed = try(() -> read(vars.storedVelocityState as String, "application/json"))
+var stored = if (parsed.success and (parsed.result.timestamps is Array)) (parsed.result.timestamps filter ($ is Number)) else []
+var active = stored filter ($ >= cutoff)
+var merged = (active ++ [ref]) orderBy $
+var capped = if (sizeOf(merged) > maxTs) merged[(sizeOf(merged) - maxTs) to -1] else merged
+var count = sizeOf(capped)
+var exceeded = if (cmp == "GTE") (count >= threshold) else (count > threshold)
+---
+{
+	timestamps: capped,
+	velocity: {
+		count: count,
+		windowType: "SLIDING",
+		windowSeconds: windowSeconds,
+		windowStart: ((cutoff as DateTime {unit: "milliseconds"}) as String),
+		windowEnd: ((ref as DateTime {unit: "milliseconds"}) as String),
+		expiredRemoved: sizeOf(stored) - sizeOf(active),
+		threshold: threshold,
+		comparison: if (cmp == "GTE") "GTE" else "GT",
+		thresholdExceeded: exceeded,
+		timestampSource: if (useEventTs) "EVENT_TIMESTAMP" else "SERVER_TIME"
+	}
+}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<set-variable variableName="velocity" value="#[vars.velocityComputation.velocity]" doc:name="Velocity details" doc:id="636e2abf-be6e-59b2-a589-7dc738413aa7"/>
+
+			<!-- 8. Store updated velocity state -->
+			<os:store key="#[vars.cardToken]" objectStore="Velocity_Store" doc:name="Store Updated Velocity State" doc:id="f3d8c8fa-7ca7-56b5-8cf1-bbfc136c30a5">
+				<os:value><![CDATA[#[write({ timestamps: vars.velocityComputation.timestamps }, "application/json", { indent: false }) as String]]]></os:value>
+			</os:store>
+
+			<!-- release lock -->
+			<os:remove key="#[vars.lockKey]" objectStore="Velocity_Lock_Store" doc:name="Release lock" doc:id="aaf8b7b0-ebda-518d-97b6-7a5719ca767e"/>
+
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate - release lock" doc:id="0ac03680-56c0-5dbf-8077-55733f096043">
+					<try doc:name="Try - Release lock (best effort)" doc:id="f6489ddb-777c-5164-8131-608de9b1487b">
+						<os:remove key="#[vars.lockKey]" objectStore="Velocity_Lock_Store" doc:name="Release lock after error" doc:id="d745a82c-3089-52df-b71c-93c0ce79ef8d"/>
+						<error-handler>
+							<on-error-continue enableNotifications="false" logException="false" doc:name="On Error Continue - ignore" doc:id="be8af63b-f3d5-5ed2-8c69-ad8384824202">
+								<logger level="WARN" message="Velocity lock was already released or expired" doc:name="Lock already gone" doc:id="78db9820-dd71-5b1d-8588-8664117f8529"/>
+							</on-error-continue>
+						</error-handler>
+					</try>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- ====================== TEST HOOK: injected primary publish failure ====================== -->
+	<flow name="primary-publish-failure-injection-flow" doc:id="78bb27e5-926b-57c4-9231-9c6f3deda048">
+		<choice doc:name="Choice - injection enabled?" doc:id="4351fd51-44e8-5fc5-9ac2-942c45a656bf">
+			<when expression="#[p('test.injectPrimaryPublishFailure') as Boolean]">
+				<logger level="WARN" message="TEST MODE: injecting primary publish failure" doc:name="Log injection" doc:id="54991103-00a8-5f08-859c-2297bcd78cf9"/>
+				<raise-error type="FRAUD:INJECTED_PRIMARY_FAILURE" description="Injected primary publish failure (test mode)" doc:name="Raise injected failure" doc:id="e7b3196e-7aff-5cc4-b68f-8e91a2ea148e"/>
+			</when>
+			<otherwise>
+				<logger level="DEBUG" message="Failure injection disabled" doc:name="Injection disabled" doc:id="b30afee4-537a-56ca-b5fb-bd7b06e0703a"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- ====================== DEAD-LETTER HANDLING ====================== -->
+	<flow name="dead-letter-after-retry-exhausted-flow" doc:id="99cd6e18-9c2e-5af4-9dd2-c9200f5d4d8c">
+		<!-- Called from on-error-continue(MULE:RETRY_EXHAUSTED). Original transaction is in vars.originalTransaction. -->
+		<ee:transform doc:name="Build DLQ Envelope" doc:id="d8456054-aab6-5f43-8d0f-e4e55ceb81fd">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var tx = vars.originalTransaction
+var maxRetries = (p('retry.maxRetries') as Number)
+fun truncate(s: String, n: Number) = if (sizeOf(s) > n) s[0 to n - 1] else s
+fun redact(s: String) = (s replace /(?i)amqps?:\/\/\S+/ with "[REDACTED_URL]") replace /(?i)(password|passwd|pwd|secret)\s*[=:]\s*\S+/ with "[REDACTED]"
+var rawReason = ((error.description default "") as String) ++ (if ((error.cause.message default "") != "") (" | " ++ (error.cause.message as String)) else "")
+---
+{
+	envelopeVersion: "1.0",
+	(eventId: tx.eventId) if (tx.eventId != null),
+	(transactionId: tx.transactionId) if (tx.transactionId != null),
+	correlationId: vars.correlationId,
+	failedAt: (now() as String),
+	failureStage: "PRIMARY_PUBLISH",
+	intendedQueue: vars.targetQueue,
+	intendedPriority: vars.messagePriority,
+	retry: {
+		maxRetries: maxRetries,
+		totalAttempts: maxRetries + 1,
+		millisBetweenRetries: (p('retry.millisBetweenRetries') as Number)
+	},
+	failure: {
+		errorType: ((error.errorType.namespace default "MULE") ++ ":" ++ (error.errorType.identifier default "UNKNOWN")),
+		reason: truncate(redact(rawReason), 300)
+	},
+	originalTransaction: tx,
+	enrichedTransaction: vars.enrichedTransaction
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+
+		<try doc:name="Try - Publish to fraud-dlq (single attempt, no retry)" doc:id="b013596e-18d6-5a1f-9206-3617b6fadb12">
+
+<amqp:publish
+    config-ref="AMQP_Config"
+    exchangeName="#['']"
+    deliveryMode="PERSISTENT"
+    requestBrokerConfirms="true"
+    doc:name="Publish to fraud-dlq"
+    doc:id="e6e32b36-290e-4206-af82-d6ccc5147033">
+
+    <amqp:routing-keys>
+        <amqp:routing-key value="${amqp.queue.dlq}" />
+    </amqp:routing-keys>
+
+    <amqp:message>
+        <amqp:body><![CDATA[#[payload]]]></amqp:body>
+        <amqp:properties
+            contentType="application/json"
+            correlationId="#[vars.correlationId]" />
+    </amqp:message>
+</amqp:publish>
+
+			<logger level="WARN" message="#['Primary publish failed after retries; transaction dead-lettered correlationId=' ++ vars.correlationId ++ ' dlq=' ++ p('amqp.queue.dlq')]" doc:name="Log dead-lettered" doc:id="cc34d594-de0c-5e05-870b-55f6f42da970"/>
+			<set-variable variableName="routingStatus" value="DEAD_LETTERED" doc:name="Routing status = DEAD_LETTERED" doc:id="95e65d5c-4226-5581-8efc-ac0f4ac2bef9"/>
+			<set-variable variableName="httpStatus" value="#[202]" doc:name="HTTP 202" doc:id="c9bb4170-3d23-5f35-a61c-6491ffc6f943"/>
+			<error-handler>
+				<on-error-propagate enableNotifications="true" logException="false" doc:name="On Error Propagate - DLQ publish failed" doc:id="2fdd736d-975e-5d2c-a06b-2e5a48050706">
+					<raise-error type="FRAUD:DLQ_PUBLISH_FAILED" description="DLQ publish failed" doc:name="Raise FRAUD:DLQ_PUBLISH_FAILED" doc:id="52ba4d6f-10be-56a6-a107-87f86094bf73"/>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+	</flow>
+</mule>

@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-5001",
+  "transactionId": "txn-5001",
+  "correlationId": "corr-expiry-0001",
+  "cardToken": "tok_expiry_demo_01",
+  "maskedCardNumber": "4111-XXXX-XXXX-4444",
+  "amount": 20.00,
+  "currency": "INR",
+  "merchantId": "m-888",
+  "merchantName": "Expiry Test",
+  "timestamp": "2026-01-01T10:00:00Z",
+  "riskLevel": "LOW",
+  "fraudScore": 10
+}
