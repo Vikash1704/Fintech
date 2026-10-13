@@ -1,0 +1,7 @@
+target/
+.mule/
+.metadata/
+.classpath
+.project
+.settings/
+*.log

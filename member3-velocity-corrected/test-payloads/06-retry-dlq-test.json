@@ -1,0 +1,14 @@
+{
+  "eventId": "evt-4001",
+  "transactionId": "txn-4001",
+  "correlationId": "corr-dlq-0001",
+  "cardToken": "tok_dlq_test_0001",
+  "maskedCardNumber": "4111-XXXX-XXXX-3333",
+  "amount": 5000.00,
+  "currency": "INR",
+  "merchantId": "m-900",
+  "merchantName": "DLQ Test Store",
+  "timestamp": "2026-10-12T10:00:00Z",
+  "riskLevel": "HIGH",
+  "fraudScore": 88
+}

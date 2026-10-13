@@ -1,0 +1,63 @@
+{
+  "eventId": "PAY-EVT-2026-100001",
+  "eventTimestamp": "2026-09-11T14:22:07+05:30",
+  "transaction": {
+    "transactionId": "TXN-10000001",
+    "amount": 248500.0,
+    "currency": "INR",
+    "channel": "ONLINE",
+    "entryMode": "CARD_NOT_PRESENT"
+  },
+  "card": {
+    "cardToken": "TKN-high0001",
+    "maskedCardNumber": "XXXXXXXXXXXX4417",
+    "cardType": "CREDIT",
+    "issuingCountry": "IN"
+  },
+  "customer": {
+    "customerId": "CUST-77219",
+    "name": "Meena Raghavan",
+    "email": "meena.raghavan@example.com",
+    "riskProfile": "STANDARD"
+  },
+  "merchant": {
+    "merchantId": "MER-5581",
+    "merchantName": "Global Gadgets Online",
+    "merchantCategory": "ELECTRONICS",
+    "merchantCountry": "SG"
+  },
+  "device": {
+    "ipAddress": "203.0.113.77",
+    "deviceId": "DEV-ax91kk",
+    "geoCountry": "SG"
+  },
+  "riskScore": 82,
+  "riskBand": "HIGH",
+  "ruleHits": [
+    {
+      "ruleCode": "AMOUNT_HIGH",
+      "ruleName": "Transaction amount above configured limit",
+      "ruleWeight": 30
+    },
+    {
+      "ruleCode": "COUNTRY_MISMATCH",
+      "ruleName": "Transaction country differs from issuing country",
+      "ruleWeight": 20
+    },
+    {
+      "ruleCode": "VELOCITY_HIGH",
+      "ruleName": "Too many transactions from same card in configured window",
+      "ruleWeight": 25
+    },
+    {
+      "ruleCode": "MERCHANT_HIGH_RISK",
+      "ruleName": "High risk merchant category",
+      "ruleWeight": 7
+    }
+  ],
+  "correlationId": "CORR-HIGH-0001",
+  "velocity": {
+    "transactionCount": 4,
+    "windowMinutes": 5
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "eventId": "evt-3001",
+  "transactionId": "txn-3001",
+  "amount": 10.00,
+  "currency": "INR",
+  "riskLevel": "CRITICAL"
+}

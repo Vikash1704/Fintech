@@ -1,0 +1,10 @@
+{
+  "eventId": "PAY-EVT-2026-100005",
+  "transaction": {
+    "transactionId": "TXN-10000005",
+    "amount": 10.0,
+    "currency": "INR"
+  },
+  "riskBand": "CRITICAL",
+  "correlationId": "CORR-BAD-0005"
+}

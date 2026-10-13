@@ -1,0 +1,44 @@
+{
+  "eventId": "PAY-EVT-2026-100003",
+  "eventTimestamp": "2026-09-11T14:22:07+05:30",
+  "transaction": {
+    "transactionId": "TXN-10000003",
+    "amount": 248500.0,
+    "currency": "INR",
+    "channel": "ONLINE",
+    "entryMode": "CARD_NOT_PRESENT"
+  },
+  "card": {
+    "cardToken": "TKN-med00003",
+    "maskedCardNumber": "XXXXXXXXXXXX4417",
+    "cardType": "CREDIT",
+    "issuingCountry": "IN"
+  },
+  "customer": {
+    "customerId": "CUST-77219",
+    "name": "Meena Raghavan",
+    "email": "meena.raghavan@example.com",
+    "riskProfile": "STANDARD"
+  },
+  "merchant": {
+    "merchantId": "MER-5581",
+    "merchantName": "Global Gadgets Online",
+    "merchantCategory": "ELECTRONICS",
+    "merchantCountry": "SG"
+  },
+  "device": {
+    "ipAddress": "203.0.113.77",
+    "deviceId": "DEV-ax91kk",
+    "geoCountry": "SG"
+  },
+  "riskScore": 55,
+  "riskBand": "MEDIUM",
+  "ruleHits": [
+    {
+      "ruleCode": "MERCHANT_HIGH_RISK",
+      "ruleName": "High risk merchant category",
+      "ruleWeight": 7
+    }
+  ],
+  "correlationId": "CORR-MED-0003"
+}

@@ -1,0 +1,38 @@
+{
+  "eventId": "PAY-EVT-2026-100007",
+  "eventTimestamp": "2026-01-01T10:00:00+05:30",
+  "transaction": {
+    "transactionId": "TXN-10000007",
+    "amount": 248500.0,
+    "currency": "INR",
+    "channel": "ONLINE",
+    "entryMode": "CARD_NOT_PRESENT"
+  },
+  "card": {
+    "cardToken": "TKN-expiry0001",
+    "maskedCardNumber": "XXXXXXXXXXXX4417",
+    "cardType": "CREDIT",
+    "issuingCountry": "IN"
+  },
+  "customer": {
+    "customerId": "CUST-77219",
+    "name": "Meena Raghavan",
+    "email": "meena.raghavan@example.com",
+    "riskProfile": "STANDARD"
+  },
+  "merchant": {
+    "merchantId": "MER-5581",
+    "merchantName": "Global Gadgets Online",
+    "merchantCategory": "ELECTRONICS",
+    "merchantCountry": "SG"
+  },
+  "device": {
+    "ipAddress": "203.0.113.77",
+    "deviceId": "DEV-ax91kk",
+    "geoCountry": "SG"
+  },
+  "riskScore": 10,
+  "riskBand": "LOW",
+  "ruleHits": [],
+  "correlationId": "CORR-EXPIRY-0001"
+}
